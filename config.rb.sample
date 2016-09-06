@@ -1,0 +1,11 @@
+module Config
+  CONNECTIONS = {
+    :stdconf => {:uri => 'https://satellite/',
+                 :username => 'user',
+                 :password => 'pw',
+                 :api_version => 2,
+                 :timeout => 3600,
+                 :org => 1},
+  }
+
+end
