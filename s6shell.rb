@@ -100,7 +100,7 @@ class ResourceProxy
   #end
   
   def to_s
-    @data.to_yaml
+    data['label'] or data['name'] or id.to_s
   end
 end
 
@@ -125,6 +125,13 @@ class Collection < ApipieBindings::Resource
   
   def make_resource_proxy(data)
     ResourceProxy.new(s6api,self,data)
+  end
+
+  def list
+    index.each do |r|
+      puts r.data.to_json
+    end
+    nil
   end
   
   def method_missing(action_name, action_parameters={})
@@ -166,6 +173,7 @@ class Collection < ApipieBindings::Resource
   
   def doc
     puts "Actions:"
+    puts "--------"
     actions.each do |a|
       puts "#{a.name}(#{_parameters(a.params)}) "
     end
@@ -219,19 +227,34 @@ class S6api < ApipieBindings::API
     #l.level=Logger::DEBUG
     #config[:logger]=l
     super(config)
+    # create resource collection objects for each resource available in the remote api
+    # - singular name version for methods that return single object
+    # - plural name version for methods that return a list
+    resources.each do |res|
+      p_name= res.name.to_s
+      s_name= ApipieBindings::Inflector.singularize(res.name.to_s)
+      singleton_class.class_eval { attr_accessor p_name }
+      singleton_class.class_eval { attr_accessor s_name }
+      instance_variable_set('@'+p_name, CollectionPlural.new(self, p_name.to_sym, s_name.to_sym))
+      instance_variable_set('@'+s_name, CollectionSingular.new(self, p_name.to_sym, s_name.to_sym))
+    end
   end
 
+  # when doing a "cd" in pry, this is what gets printed in the prompt
   def path
     "S6"
   end
-  
+
+  # list the resources
   def doc
-    resources.each do |r|
-      puts r.name.to_s
-    end
-    ''
+    puts "Resources:"
+    puts "----------"
+    resources.each { |r| puts r.name.to_s; }
+    nil
   end
-  
+
+  # wait for task until it ends or <timeout> minutes has passed. Default 10 minutes
+  # returns :done, :timeout or :nosuchtask
   def wait_task(task,timeout=10)
     counter=timeout
     if task
@@ -255,33 +278,13 @@ class S6api < ApipieBindings::API
     
   end
   
-  def method_missing(name,*args,&block)
-    singular_name= ApipieBindings::Inflector.singularize(name)
-    plural_name= ApipieBindings::Inflector.pluralize(name)
-    #infl_bug_pluralize(name)
-    #puts "call S6api resource #{name} singularized #{singular_name} pluralized #{plural_name}"
-    res=nil
-    if has_resource?(name.to_sym)
-      #puts "plural"
-      res=CollectionPlural.new(self, name.to_sym, singular_name.to_sym)
-    elsif has_resource?(plural_name.to_sym)
-      #puts "singular"
-      res=CollectionSingular.new(self, plural_name.to_sym, name.to_sym)
-    else
-      super
-      return
-    end
-    return res
-  end
 end
 
 
 
-def shell
-  api=S6api.new(Config::CONNECTIONS[:stdconf])
+if __FILE__ == $0
   Pry.config.prompt = proc { |obj, nest_level, _| "#{obj.path}:#{nest_level}> " }
+  Pry.config.print = proc { |output,value| output.puts value.to_s }
+  api=S6api.new(Config::CONNECTIONS[:stdconf])
   api.pry
-  #Pry.start binding, :print => proc { |output, value| nil }
 end
-
-shell
