@@ -1,0 +1,110 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'apipie-bindings'
+require 'yaml'
+require 'json'
+require 'pry'
+
+require './config.rb'
+
+
+module ApiHelpers
+
+  def _parameter_doc(params)
+    ps= params.collect do |p|
+      if p.params!=[]
+        "#{p.required? ? '*' : ''}#{p.name} => (#{_parameter_doc(p.params)})"
+      else
+        "#{p.required? ? '*' : ''}#{p.name}"
+      end
+    end
+    ps.join(", ")
+  end
+  
+  def doc
+    puts "Actions:"
+    puts "--------"
+    actions.each do |a|
+      puts "#{a.name}(#{_parameter_doc(a.params)}) "
+    end
+    nil
+  end
+
+  def by(kv={})
+    searches=kv.collect {|k,v| "#{k}=\"#{v}\""}
+    index(search: searches.first).first
+  end
+
+  
+  
+end
+
+
+
+class S6api < ApipieBindings::API
+  #include GlobalDefaultValues
+  
+  def initialize(config)
+    super(config)
+    # magic
+    resources.each do |resource|
+      resource.actions.each do |action|
+        # inject to resource methods that return action
+        resource.define_singleton_method(action.name.to_s) do |args={}|
+          res=action.call(args)
+          res.key?('results') ? res['results'] : res
+        end
+      end
+      # inject method that returns the resource object
+      define_singleton_method(resource.name.to_s) {resource}
+      resource.instance_eval do
+        extend ApiHelpers
+      end
+    end
+  end
+  
+
+  # list the resources
+  def doc
+    puts "Resources:"
+    puts "----------"
+    resources.each { |r| puts r.name.to_s; }
+    nil
+  end
+
+  # wait for task until it ends or <timeout> minutes has passed. Default 10 minutes
+  # returns :done, :timeout or :nosuchtask
+  def wait_task(task,timeout=10)
+    counter=timeout
+    if task
+      task_id=task['id']
+      status=foreman_tasks.show(id: task_id)
+      while counter!=0 and status['state']!='stopped'
+        #puts "Waiting: state=#{status['state']} result=#{status['result']}"
+        sleep(60)
+        counter= counter-1
+        if counter==0
+          return :timeout
+        end
+        status= foreman_tasks.show(id: task_id)
+      end
+      # TODO alarm somebody somehow if result is not 'success'
+      puts "Done: state=#{status['state']} result=#{status['result']}"
+      return :done
+    else
+      return :nosuchtask
+      end
+    
+  end
+  
+end
+
+
+
+if __FILE__ == $0
+  #Pry.config.prompt = proc { |obj, nest_level, _| "#{obj.path}:#{nest_level}> " }
+  Pry.config.print = proc { |output,value| output.puts value.to_s }
+  api=S6api.new(Config::CONNECTIONS[:stdconf])
+  api.pry
+end
