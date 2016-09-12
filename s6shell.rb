@@ -61,7 +61,7 @@ class ResourceProxy
   end
 
   def path
-    name= @data['name'] or @id or "??"
+    name= @data['name'] or id or "??"
     "#{@resource_api.path}/#{name}"
   end
   
@@ -95,9 +95,6 @@ class ResourceProxy
     end
   end
 
-  #def method_missing(m,*args,&block)
-  # 
-  #end
   
   def to_s
     data['label'] or data['name'] or id.to_s
@@ -133,12 +130,14 @@ class Collection < ApipieBindings::Resource
     end
     nil
   end
-  
+
+  # we are now in the context of a resource class
+  #
   def method_missing(action_name, action_parameters={})
     action_sym= action_name.to_sym
-    #puts "Collection #{plural_name} Action #{action_sym} #{action_parameters}"
+    # Api level methods should be available too
     unless has_action?(action_sym)
-      return @s6api.send(action_sym,action_parameters)
+      return @s6api.send(action_name)
     end
     req_param= action(action_sym).params.select {|p| p.required? }
     req_param.each do |p|
@@ -149,14 +148,18 @@ class Collection < ApipieBindings::Resource
         end
       end
     end
-    results= call(action_sym,action_parameters)
-    #puts results
-    if results.key?('results')
-      return results['results'].collect {|r|
-        make_resource_proxy(r)
-      }
+    response= call(action_sym,action_parameters)
+
+    return response
+    
+    if response.key?('results')
+      puts "YES"
+      return response['results']
+      #.collect {|r|
+      #  make_resource_proxy(r)
+      #}
     else
-      return results
+      return response
     end
   end
 
@@ -215,6 +218,9 @@ class CollectionPlural < Collection
     index(search: f_string)
   end
 
+  def each(&block)
+    index.each(&block)
+  end
 end
 
 
@@ -283,7 +289,7 @@ end
 
 
 if __FILE__ == $0
-  Pry.config.prompt = proc { |obj, nest_level, _| "#{obj.path}:#{nest_level}> " }
+  #Pry.config.prompt = proc { |obj, nest_level, _| "#{obj.path}:#{nest_level}> " }
   Pry.config.print = proc { |output,value| output.puts value.to_s }
   api=S6api.new(Config::CONNECTIONS[:stdconf])
   api.pry
